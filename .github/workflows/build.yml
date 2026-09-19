@@ -1,0 +1,68 @@
+name: Build ShinnH4K IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Setup build directory
+        run: mkdir -p build
+
+      - name: Install ldid (for later signing)
+        run: |
+          brew install ldid || true
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -project ShinnH4K.xcodeproj \
+            -scheme ShinnH4K \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/ShinnH4K.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | xcpretty || true
+
+      - name: Package IPA (unsigned)
+        run: |
+          APP_PATH="build/ShinnH4K.xcarchive/Products/Applications/ShinnH4K.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App not found at $APP_PATH"
+            ls -la build/ShinnH4K.xcarchive/Products/Applications/ || true
+            exit 1
+          fi
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          rm -rf build/Payload/ShinnH4K.app/_CodeSignature || true
+          rm -f build/Payload/ShinnH4K.app/embedded.mobileprovision || true
+          cd build
+          zip -qr ShinnH4K.ipa Payload
+          cd ..
+          ls -la build/
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShinnH4K-unsigned-ipa
+          path: build/ShinnH4K.ipa
+          retention-days: 30
