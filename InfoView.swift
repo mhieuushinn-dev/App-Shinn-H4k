@@ -256,3 +256,178 @@ struct InfoView: View {
                     showLogs = true
                 }
                 actionButton(icon: "doc.text", label: ShinnText.settingsLegal(language)) {
+                    showTerms = true
+                }
+            }
+        }
+    }
+
+    private func card<Content: View>(
+        title: String,
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundStyle(.white.opacity(0.55))
+                Spacer()
+            }
+            content()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: ShinnTheme.cardCornerRadius, style: .continuous)
+                .fill(ShinnTheme.cardBackground)
+        )
+        .overlay(NeonCardBorder(isHighlighted: false))
+    }
+
+    private func infoRow(label: String, value: String, valueColor: Color = .white) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.5))
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(valueColor)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func contactLink(icon: String, label: String, url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24)
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 40)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+        }
+    }
+
+    private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24)
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 40)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var appVersion: String {
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        return "\(v) (\(b))"
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.locale = language.locale
+        return f.string(from: date)
+    }
+}
+
+// MARK: - Terms Reader
+struct TermsReaderView: View {
+    @Environment(\.shinnLanguage) private var language
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            ShinnTheme.background.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    section(
+                        title: ShinnText.onboardingLegalTitle(language),
+                        body: ShinnText.onboardingLegalBody(language)
+                    )
+                    section(
+                        title: ShinnText.onboardingRiskTitle(language),
+                        body: ShinnText.onboardingRiskBody(language)
+                    )
+                    section(
+                        title: ShinnText.onboardingResponsibilityTitle(language),
+                        body: ShinnText.onboardingResponsibilityBody(language)
+                    )
+                }
+                .padding(ShinnTheme.pageInset)
+            }
+        }
+        .navigationTitle(ShinnText.settingsLegal(language))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(ShinnText.close(language)) { dismiss() }
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private func section(title: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+            Text(body)
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(ShinnTheme.cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.6)
+        )
+    }
+}
