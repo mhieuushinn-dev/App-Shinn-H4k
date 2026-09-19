@@ -1,65 +1,46 @@
-name: Build ShinnH4K IPA
+name: ShinnH4K
+options:
+  bundleIdPrefix: com.shinnh4k
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
 
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
 
-jobs:
-  build:
-    name: Build unsigned IPA
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Verify scheme
-        run: xcodebuild -list -project ShinnH4K.xcodeproj
-
-      - name: Archive (unsigned)
-        run: |
-          set -o pipefail
-          xcodebuild archive \
-            -project ShinnH4K.xcodeproj \
-            -scheme ShinnH4K \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath build/ShinnH4K.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
-            PROVISIONING_PROFILE_SPECIFIER=""
-
-      - name: Package IPA
-        run: |
-          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app found"
-            find build/ShinnH4K.xcarchive -maxdepth 5
-            exit 1
-          fi
-          APP_NAME=$(basename "$APP_PATH" .app)
-          echo "Found app: $APP_NAME"
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/
-          rm -rf build/Payload/${APP_NAME}.app/_CodeSignature || true
-          rm -f build/Payload/${APP_NAME}.app/embedded.mobileprovision || true
-          cd build
-          zip -qr ShinnH4K.ipa Payload
-          cd ..
-          ls -la build/
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ShinnH4K-unsigned-ipa
-          path: build/ShinnH4K.ipa
-          retention-days: 30
+targets:
+  ShinnH4K:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: ShinnH4K
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_NAME: ShinnH4K
+        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest
+        INFOPLIST_FILE: ShinnH4K/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: ShinnH4K/ShinnH4K-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/ShinnH4K"
+          - "$(SRCROOT)/ShinnH4K/exploit"
+          - "$(SRCROOT)/ShinnH4K/kexploit"
+          - "$(SRCROOT)/ShinnH4K/helpers"
+        LIBRARY_SEARCH_PATHS:
+          - "$(SRCROOT)/ShinnH4K"
+        OTHER_LDFLAGS: "-lz"
+        OTHER_CFLAGS: "-Wno-everything"
+        ENABLE_BITCODE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: "NO"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
