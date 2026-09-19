@@ -3,8 +3,6 @@ name: Build ShinnH4K IPA
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -16,20 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
+      - name: Show project info
         run: |
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-
-      - name: Setup build directory
-        run: mkdir -p build
-
-      - name: Install ldid (for later signing)
-        run: |
-          brew install ldid || true
+          echo "=== Files ==="
+          ls -la
+          echo "=== Xcodeproj ==="
+          ls -la ShinnH4K.xcodeproj/ || echo "MISSING XCODEPROJ"
+          echo "=== Schemes ==="
+          xcodebuild -list -project ShinnH4K.xcodeproj || true
 
       - name: Archive (unsigned)
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project ShinnH4K.xcodeproj \
             -scheme ShinnH4K \
@@ -41,26 +37,34 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            | xcpretty || true
+            -verbose
+
+      - name: List archive contents
+        if: always()
+        run: |
+          echo "=== Archive tree ==="
+          find build/ShinnH4K.xcarchive -maxdepth 4 -type d 2>/dev/null || true
 
       - name: Package IPA (unsigned)
         run: |
-          APP_PATH="build/ShinnH4K.xcarchive/Products/Applications/ShinnH4K.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "App not found at $APP_PATH"
-            ls -la build/ShinnH4K.xcarchive/Products/Applications/ || true
+          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in archive"
+            find build/ShinnH4K.xcarchive -maxdepth 5 2>/dev/null || true
             exit 1
           fi
+          echo "Found app: $APP_PATH"
+          APP_NAME=$(basename "$APP_PATH" .app)
           mkdir -p build/Payload
           cp -R "$APP_PATH" build/Payload/
-          rm -rf build/Payload/ShinnH4K.app/_CodeSignature || true
-          rm -f build/Payload/ShinnH4K.app/embedded.mobileprovision || true
+          rm -rf build/Payload/${APP_NAME}.app/_CodeSignature || true
+          rm -f build/Payload/${APP_NAME}.app/embedded.mobileprovision || true
           cd build
           zip -qr ShinnH4K.ipa Payload
           cd ..
           ls -la build/
 
-      - name: Upload IPA artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ShinnH4K-unsigned-ipa
