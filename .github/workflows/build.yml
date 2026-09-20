@@ -1,43 +1,173 @@
-name: ShinnH4K
-options:
-  bundleIdPrefix: com.shinn
-  deploymentTarget:
-    iOS: "17.0"
-  createIntermediateGroups: true
+name: Build ShinnH4K IPA
 
-settings:
-  base:
-    SWIFT_VERSION: "5.0"
-    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
-    CODE_SIGN_IDENTITY: ""
-    CODE_SIGNING_REQUIRED: "NO"
-    CODE_SIGNING_ALLOWED: "NO"
+on:
+  workflow_dispatch:
 
-targets:
-  ShinnH4K:
-    type: application
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: .
-        excludes:
-          - .github
-          - build
-          - ShinnH4K.xcodeproj
-    settings:
-      base:
-        PRODUCT_NAME: ShinnH4K
-        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest
-        INFOPLIST_FILE: Info.plist
-        SWIFT_OBJC_BRIDGING_HEADER: ShinnH4K-Bridging-Header.h
-        HEADER_SEARCH_PATHS:
-          - "$(SRCROOT)"
-          - "$(SRCROOT)/exploit"
-          - "$(SRCROOT)/kexploit"
-          - "$(SRCROOT)/helpers"
-        OTHER_LDFLAGS: "-lz"
-        OTHER_CFLAGS: "-Wno-everything"
-        ENABLE_BITCODE: "NO"
-        TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build iOS IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Find project.yml
+        shell: bash
+        run: |
+          set -e
+
+          SPEC=$(find . -name "project.yml" \
+            -not -path "./.git/*" \
+            | head -n 1)
+
+          if [ -z "$SPEC" ]; then
+            echo "ERROR: project.yml not found"
+            exit 1
+          fi
+
+          echo "SPEC=$SPEC" >> "$GITHUB_ENV"
+          echo "Found: $SPEC"
+
+      - name: Generate Xcode Project
+        shell: bash
+        run: |
+          set -e
+
+          SPEC_DIR=$(dirname "$SPEC")
+
+          cd "$SPEC_DIR"
+
+          xcodegen generate \
+            --spec project.yml
+
+          PROJECT=$(find . \
+            -maxdepth 1 \
+            -name "*.xcodeproj" \
+            | head -n 1)
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: Xcode project not generated"
+            exit 1
+          fi
+
+          PROJECT_PATH="$SPEC_DIR/${PROJECT#./}"
+
+          echo "PROJECT_PATH=$PROJECT_PATH" \
+            >> "$GITHUB_ENV"
+
+          echo "Project: $PROJECT_PATH"
+
+      - name: Check Project and Schemes
+        shell: bash
+        run: |
+          set -e
+
+          test -d "$PROJECT_PATH"
+
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -list
+
+      - name: Build App
+        shell: bash
+        run: |
+          set -o pipefail
+
+          mkdir -p build
+
+          SCHEME=$(xcodebuild \
+            -project "$PROJECT_PATH" \
+            -list \
+            | awk '
+              /Schemes:/ {found=1; next}
+              found && NF {
+                print $1
+                exit
+              }
+            ')
+
+          if [ -z "$SCHEME" ]; then
+            echo "ERROR: No scheme found"
+            exit 1
+          fi
+
+          echo "Using scheme: $SCHEME"
+
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build \
+            | tee build/build.log
+
+      - name: Find App
+        shell: bash
+        run: |
+          set -e
+
+          APP_PATH=$(find build \
+            -type d \
+            -name "*.app" \
+            | head -n 1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: App not found"
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" \
+            >> "$GITHUB_ENV"
+
+          echo "App: $APP_PATH"
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf Payload
+          mkdir -p Payload
+
+          cp -R "$APP_PATH" Payload/
+
+          zip -qry \
+            ShinnH4K.ipa \
+            Payload
+
+          test -f ShinnH4K.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShinnH4K-IPA
+          path: ShinnH4K.ipa
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShinnH4K-Build-Logs
+          path: build/
+          if-no-files-found: warn
