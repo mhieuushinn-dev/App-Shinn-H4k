@@ -1,307 +1,44 @@
-name: Build ShinnH4K IPA
-
-on:
-  push:
-    branches:
-      - main
-      - master
-
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Build unsigned IPA
-    runs-on: macos-14
-
-    steps:
-
-      # =========================
-      # CHECKOUT
-      # =========================
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # =========================
-      # XCODE
-      # =========================
-      - name: Show Xcode
-        run: |
-          set -e
-          xcodebuild -version
-
-      # =========================
-      # XCODEGEN
-      # =========================
-      - name: Install XcodeGen
-        run: |
-          set -e
-
-          brew install xcodegen
-
-          echo "XcodeGen:"
-          xcodegen version
-
-      # =========================
-      # CHECK FILES
-      # =========================
-      - name: Check project files
-        run: |
-          set -e
-
-          echo "================ ROOT ================"
-          ls -la
-
-          echo "================ project.yml ================"
-          test -f project.yml
-
-          echo "================ INFO ================"
-          test -f Info.plist
-
-          echo "================ BRIDGING HEADER ================"
-          test -f ShinnH4K-Bridging-Header.h
-
-          echo "================ ASSETS ================"
-          if [ -d "Assets.xcassets" ]; then
-            echo "Assets.xcassets found"
-          else
-            echo "No Assets.xcassets"
-          fi
-
-      # =========================
-      # REMOVE OLD PROJECT
-      # =========================
-      - name: Remove old generated project
-        run: |
-          set -e
-
-          rm -rf ShinnH4K.xcodeproj
-          rm -rf build
-
-      # =========================
-      # GENERATE XCODE PROJECT
-      # =========================
-      - name: Generate Xcode project
-        run: |
-          set -e
-
-          xcodegen generate \
-            --spec project.yml
-
-          test -d ShinnH4K.xcodeproj
-          test -f ShinnH4K.xcodeproj/project.pbxproj
-
-          echo "================ GENERATED PROJECT ================"
-
-          ls -la ShinnH4K.xcodeproj
-
-      # =========================
-      # FIX XCODE PROJECT FORMAT
-      # =========================
-      - name: Fix project format for Xcode 15
-        run: |
-          set -e
-
-          python3 <<'PY'
-          from pathlib import Path
-
-          path = Path("ShinnH4K.xcodeproj/project.pbxproj")
-
-          if not path.exists():
-              raise SystemExit("project.pbxproj not found")
-
-          text = path.read_text()
-
-          text = text.replace(
-              "objectVersion = 70;",
-              "objectVersion = 56;"
-          )
-
-          text = text.replace(
-              "objectVersion = 77;",
-              "objectVersion = 56;"
-          )
-
-          path.write_text(text)
-
-          print("Project format fixed")
-          PY
-
-      # =========================
-      # CHECK PROJECT
-      # =========================
-      - name: Verify project
-        run: |
-          set -e
-
-          echo "================ PROJECT HEADER ================"
-
-          head -30 \
-            ShinnH4K.xcodeproj/project.pbxproj
-
-          echo "================ XCODE PROJECT LIST ================"
-
-          xcodebuild \
-            -list \
-            -project ShinnH4K.xcodeproj
-
-      # =========================
-      # CHECK BUILD SETTINGS
-      # =========================
-      - name: Show build settings
-        run: |
-          set -e
-
-          xcodebuild \
-            -project ShinnH4K.xcodeproj \
-            -scheme ShinnH4K \
-            -configuration Release \
-            -showBuildSettings \
-            > build-settings.txt
-
-          echo "Build settings generated"
-
-          grep -E \
-            "PRODUCT_BUNDLE_IDENTIFIER|INFOPLIST_FILE|SWIFT_OBJC_BRIDGING_HEADER|IPHONEOS_DEPLOYMENT_TARGET" \
-            build-settings.txt || true
-
-      # =========================
-      # CLEAN
-      # =========================
-      - name: Clean build
-        run: |
-          set -e
-
-          rm -rf build
-
-          mkdir -p build
-
-      # =========================
-      # ARCHIVE
-      # =========================
-      - name: Archive unsigned
-        run: |
-          set -o pipefail
-
-          xcodebuild archive \
-            -project ShinnH4K.xcodeproj \
-            -scheme ShinnH4K \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath "build/ShinnH4K.xcarchive" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            IPHONEOS_DEPLOYMENT_TARGET=17.0
-
-      # =========================
-      # FIND APP
-      # =========================
-      - name: Find application
-        run: |
-          set -e
-
-          echo "================ ARCHIVE ================"
-
-          find \
-            build/ShinnH4K.xcarchive \
-            -maxdepth 6 \
-            -print
-
-          APP_PATH=$(
-            find \
-              build/ShinnH4K.xcarchive/Products/Applications \
-              -maxdepth 1 \
-              -type d \
-              -name "*.app" \
-              2>/dev/null | head -1
-          )
-
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app found"
-            exit 1
-          fi
-
-          echo "APP_PATH=$APP_PATH"
-
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-
-      # =========================
-      # CREATE PAYLOAD
-      # =========================
-      - name: Create Payload
-        run: |
-          set -e
-
-          rm -rf build/Payload
-
-          mkdir -p build/Payload
-
-          APP_NAME=$(basename "$APP_PATH" .app)
-
-          cp -R \
-            "$APP_PATH" \
-            "build/Payload/$APP_NAME.app"
-
-          echo "APP:"
-          ls -la build/Payload
-
-      # =========================
-      # REMOVE SIGNATURE
-      # =========================
-      - name: Remove code signature
-        run: |
-          set -e
-
-          APP_NAME=$(basename "$APP_PATH" .app)
-
-          rm -rf \
-            "build/Payload/$APP_NAME.app/_CodeSignature"
-
-          rm -f \
-            "build/Payload/$APP_NAME.app/embedded.mobileprovision"
-
-      # =========================
-      # CREATE IPA
-      # =========================
-      - name: Package IPA
-        run: |
-          set -e
-
-          cd build
-
-          rm -f ShinnH4K.ipa
-
-          zip -qr \
-            ShinnH4K.ipa \
-            Payload
-
-          cd ..
-
-          echo "================ IPA ================"
-
-          ls -lh \
-            build/ShinnH4K.ipa
-
-      # =========================
-      # VERIFY IPA
-      # =========================
-      - name: Verify IPA
-        run: |
-          set -e
-
-          test -f build/ShinnH4K.ipa
-
-          unzip -l \
-            build/ShinnH4K.ipa
-
-      # =========================
-      # UPLOAD
-      # =========================
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ShinnH4K-unsigned-ipa
-          path: build/ShinnH4K.ipa
-          retention-days: 30
+name: ShinnH4K
+options:
+  bundleIdPrefix: com.shinn
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  ShinnH4K:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: .
+        excludes:
+          - .github
+          - build
+          - ShinnH4K.xcodeproj
+    settings:
+      base:
+        PRODUCT_NAME: ShinnH4K
+        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest
+        INFOPLIST_FILE: Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: ShinnH4K-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)"
+          - "$(SRCROOT)/exploit"
+          - "$(SRCROOT)/kexploit"
+          - "$(SRCROOT)/helpers"
+        OTHER_LDFLAGS: "-lz"
+        OTHER_CFLAGS: "-Wno-everything"
+        ENABLE_BITCODE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
