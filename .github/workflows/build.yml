@@ -3,8 +3,6 @@ name: Build ShinnH4K IPA
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -16,18 +14,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Show environment
+        run: |
+          echo "=== Xcode ==="
+          xcodebuild -version
+          echo "=== Repo root ==="
+          ls -la
+          echo "=== ShinnH4K folder ==="
+          ls -la ShinnH4K/ || echo "MISSING ShinnH4K folder"
+          echo "=== project.yml ==="
+          ls -la project.yml || echo "MISSING project.yml"
+
       - name: Install XcodeGen
-        run: brew install xcodegen || brew upgrade xcodegen
+        run: brew install xcodegen
 
       - name: Generate Xcode project
         run: |
-          echo "=== Generating project with XcodeGen ==="
-          xcodegen generate --verbose
-          echo "=== Checking generated folder ==="
-          ls -la ShinnH4K.xcodeproj/
+          if [ ! -f project.yml ]; then
+            echo "ERROR: project.yml not found at repo root"
+            exit 1
+          fi
+          xcodegen generate
+          ls -la ShinnH4K.xcodeproj/ || echo "MISSING xcodeproj"
+
+      - name: Verify scheme
+        run: xcodebuild -list -project ShinnH4K.xcodeproj
 
       - name: Clean build folder
-        run: rm -rf build && mkdir -p build
+        run: |
+          rm -rf build
+          mkdir -p build
 
       - name: Archive (unsigned)
         run: |
@@ -45,26 +61,28 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             IPHONEOS_DEPLOYMENT_TARGET=17.0
 
+      - name: List archive contents
+        if: always()
+        run: |
+          find build/ShinnH4K.xcarchive -maxdepth 4 2>/dev/null || echo "No archive"
+
       - name: Package IPA (unsigned)
         run: |
-          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d | head -1)
+          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d 2>/dev/null | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: No .app found in archive"
+            find build/ShinnH4K.xcarchive -maxdepth 5 2>/dev/null
             exit 1
           fi
           APP_NAME=$(basename "$APP_PATH" .app)
-
+          echo "Found: $APP_NAME"
           mkdir -p build/Payload
           cp -R "$APP_PATH" build/Payload/
-
           rm -rf "build/Payload/${APP_NAME}.app/_CodeSignature" || true
           rm -f  "build/Payload/${APP_NAME}.app/embedded.mobileprovision" || true
-
           cd build
           zip -qr ShinnH4K.ipa Payload
           cd ..
-
-          echo "=== Final IPA successfully built ==="
           ls -la build/ShinnH4K.ipa
 
       - name: Upload IPA artifact
@@ -73,4 +91,3 @@ jobs:
           name: ShinnH4K-unsigned-ipa
           path: build/ShinnH4K.ipa
           retention-days: 30
-          if-no-files-found: error
