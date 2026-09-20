@@ -3,7 +3,12 @@ name: Build ShinnH4K
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -18,28 +23,238 @@ jobs:
         run: |
           echo "=== ROOT ==="
           ls -la
-          echo "=== exploit/ ==="
-          ls -la exploit/ 2>&1 || echo "MISSING exploit/"
-          echo "=== kexploit/ ==="
-          ls -la kexploit/ 2>&1 || echo "MISSING kexploit/"
-          echo "=== helpers/ ==="
-          ls -la helpers/ 2>&1 || echo "MISSING helpers/"
+          echo "=== Swift files ==="
+          find . -name "*.swift" -not -path "./build/*" -not -path "./.git/*" | sort
+          echo "=== ObjC/C files ==="
+          find . \( -name "*.m" -o -name "*.c" \) -not -path "./build/*" -not -path "./.git/*" | sort
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
+      - name: Create minimal Xcode project
         run: |
-          xcodegen generate
-          echo "=== After generate ==="
-          ls -la ShinnH4K.xcodeproj/ || echo "MISSING xcodeproj"
-          echo "=== pbxproj size ==="
-          wc -c ShinnH4K.xcodeproj/project.pbxproj || echo "MISSING pbxproj"
+          mkdir -p ShinnH4K.xcodeproj/xcshareddata/xcschemes
+
+          SWIFT_FILES=$(find . -name "*.swift" -not -path "./build/*" -not -path "./.git/*" -not -path "./ShinnH4K.xcodeproj/*" | sort)
+          OBJC_FILES=$(find . \( -name "*.m" -o -name "*.c" \) -not -path "./build/*" -not -path "./.git/*" -not -path "./ShinnH4K.xcodeproj/*" | sort)
+
+          echo "Swift count: $(echo "$SWIFT_FILES" | wc -l)"
+          echo "ObjC count: $(echo "$OBJC_FILES" | wc -l)"
+
+          SWIFT_REFS=""
+          SWIFT_BUILD=""
+          SWIFT_GROUP=""
+          IDX=1000
+          for f in $SWIFT_FILES; do
+            IDX=$((IDX+1))
+            NAME=$(basename "$f")
+            SWIFT_REFS="${SWIFT_REFS}                F${IDX} /* ${NAME} */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = \"${NAME}\"; sourceTree = \"<group>\"; };
+"
+            SWIFT_BUILD="${SWIFT_BUILD}                B${IDX} /* ${NAME} in Sources */ = {isa = PBXBuildFile; fileRef = F${IDX} /* ${NAME} */; };
+"
+            SWIFT_GROUP="${SWIFT_GROUP}                    F${IDX} /* ${NAME} */,
+"
+          done
+
+          OBJC_REFS=""
+          OBJC_BUILD=""
+          OBJC_GROUP=""
+          for f in $OBJC_FILES; do
+            IDX=$((IDX+1))
+            NAME=$(basename "$f")
+            EXT="${NAME##*.}"
+            FILETYPE="sourcecode.c.objc"
+            if [ "$EXT" = "c" ]; then FILETYPE="sourcecode.c.c"; fi
+            OBJC_REFS="${OBJC_REFS}                F${IDX} /* ${NAME} */ = {isa = PBXFileReference; lastKnownFileType = ${FILETYPE}; path = \"${NAME}\"; sourceTree = \"<group>\"; };
+"
+            OBJC_BUILD="${OBJC_BUILD}                B${IDX} /* ${NAME} in Sources */ = {isa = PBXBuildFile; fileRef = F${IDX} /* ${NAME} */; };
+"
+            OBJC_GROUP="${OBJC_GROUP}                    F${IDX} /* ${NAME} */,
+"
+          done
+
+          cat > ShinnH4K.xcodeproj/project.pbxproj <<PBXEOF
+          // !$*UTF8*$!
+          {
+              archiveVersion = 1;
+              classes = {};
+              objectVersion = 56;
+              objects = {
+                  P001 = {
+                      isa = PBXProject;
+                      attributes = { LastUpgradeCheck = 1500; };
+                      buildConfigurationList = CL001;
+                      compatibilityVersion = "Xcode 14.0";
+                      developmentRegion = en;
+                      hasScannedForEncodings = 0;
+                      knownRegions = (en, Base);
+                      mainGroup = GRP001;
+                      productRefGroup = GRP002;
+                      projectDirPath = "";
+                      projectRoot = "";
+                      targets = (TGT001);
+                  };
+                  GRP001 = {
+                      isa = PBXGroup;
+                      children = (GRP003, GRP002);
+                      sourceTree = "<group>";
+                  };
+                  GRP002 = {
+                      isa = PBXGroup;
+                      children = (PROD001);
+                      name = Products;
+                      sourceTree = "<group>";
+                  };
+                  GRP003 = {
+                      isa = PBXGroup;
+                      children = (
+          ${SWIFT_GROUP}
+          ${OBJC_GROUP}
+                      );
+                      name = Sources;
+                      sourceTree = "<group>";
+                  };
+                  PROD001 = {
+                      isa = PBXFileReference;
+                      explicitFileType = wrapper.application;
+                      includeInIndex = 0;
+                      path = ShinnH4K.app;
+                      sourceTree = BUILT_PRODUCTS_DIR;
+                  };
+                  TGT001 = {
+                      isa = PBXNativeTarget;
+                      buildConfigurationList = CL002;
+                      buildPhases = (PH001, PH002);
+                      buildRules = ();
+                      dependencies = ();
+                      name = ShinnH4K;
+                      productName = ShinnH4K;
+                      productReference = PROD001;
+                      productType = "com.apple.product-type.application";
+                  };
+                  PH001 = {
+                      isa = PBXSourcesBuildPhase;
+                      buildActionMask = 2147483647;
+                      files = (
+          ${SWIFT_BUILD}
+          ${OBJC_BUILD}
+                      );
+                      runOnlyForDeploymentPostprocessing = 0;
+                  };
+                  PH002 = {
+                      isa = PBXResourcesBuildPhase;
+                      buildActionMask = 2147483647;
+                      files = ();
+                      runOnlyForDeploymentPostprocessing = 0;
+                  };
+          ${SWIFT_REFS}
+          ${OBJC_REFS}
+                  CL001 = {
+                      isa = XCConfigurationList;
+                      buildConfigurations = (BC001, BC002);
+                      defaultConfigurationIsVisible = 0;
+                      defaultConfigurationName = Release;
+                  };
+                  CL002 = {
+                      isa = XCConfigurationList;
+                      buildConfigurations = (BC003, BC004);
+                      defaultConfigurationIsVisible = 0;
+                      defaultConfigurationName = Release;
+                  };
+                  BC001 = {
+                      isa = XCBuildConfiguration;
+                      buildSettings = {
+                          IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                          SDKROOT = iphoneos;
+                          SWIFT_VERSION = 5.0;
+                      };
+                      name = Debug;
+                  };
+                  BC002 = {
+                      isa = XCBuildConfiguration;
+                      buildSettings = {
+                          IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                          SDKROOT = iphoneos;
+                          SWIFT_VERSION = 5.0;
+                      };
+                      name = Release;
+                  };
+                  BC003 = {
+                      isa = XCBuildConfiguration;
+                      buildSettings = {
+                          PRODUCT_NAME = "ShinnH4K";
+                          PRODUCT_BUNDLE_IDENTIFIER = "com.apple.mobile.MobileHouseArrest";
+                          INFOPLIST_FILE = "Info.plist";
+                          SWIFT_OBJC_BRIDGING_HEADER = "ShinnH4K-Bridging-Header.h";
+                          HEADER_SEARCH_PATHS = ("\$(SRCROOT)", "\$(SRCROOT)/**");
+                          OTHER_LDFLAGS = "-lz";
+                          OTHER_CFLAGS = "-Wno-everything";
+                          CODE_SIGNING_ALLOWED = NO;
+                          CODE_SIGNING_REQUIRED = NO;
+                          CODE_SIGN_IDENTITY = "";
+                          ENABLE_BITCODE = NO;
+                          ALWAYS_SEARCH_USER_PATHS = NO;
+                          TARGETED_DEVICE_FAMILY = "1,2";
+                          MARKETING_VERSION = 1.0.0;
+                          CURRENT_PROJECT_VERSION = 1;
+                          SWIFT_VERSION = 5.0;
+                          SDKROOT = iphoneos;
+                          IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                      };
+                      name = Debug;
+                  };
+                  BC004 = {
+                      isa = XCBuildConfiguration;
+                      buildSettings = {
+                          PRODUCT_NAME = "ShinnH4K";
+                          PRODUCT_BUNDLE_IDENTIFIER = "com.apple.mobile.MobileHouseArrest";
+                          INFOPLIST_FILE = "Info.plist";
+                          SWIFT_OBJC_BRIDGING_HEADER = "ShinnH4K-Bridging-Header.h";
+                          HEADER_SEARCH_PATHS = ("\$(SRCROOT)", "\$(SRCROOT)/**");
+                          OTHER_LDFLAGS = "-lz";
+                          OTHER_CFLAGS = "-Wno-everything";
+                          CODE_SIGNING_ALLOWED = NO;
+                          CODE_SIGNING_REQUIRED = NO;
+                          CODE_SIGN_IDENTITY = "";
+                          ENABLE_BITCODE = NO;
+                          ALWAYS_SEARCH_USER_PATHS = NO;
+                          TARGETED_DEVICE_FAMILY = "1,2";
+                          MARKETING_VERSION = 1.0.0;
+                          CURRENT_PROJECT_VERSION = 1;
+                          SWIFT_VERSION = 5.0;
+                          SDKROOT = iphoneos;
+                          IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+                      };
+                      name = Release;
+                  };
+              };
+              rootObject = P001;
+          }
+          PBXEOF
+
+          cat > ShinnH4K.xcodeproj/xcshareddata/xcschemes/ShinnH4K.xcscheme << 'SCHEMEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Scheme LastUpgradeVersion="1500" version="1.7">
+             <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+                <BuildActionEntries>
+                   <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
+                      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="TGT001" BuildableName="ShinnH4K.app" BlueprintName="ShinnH4K" ReferencedContainer="container:ShinnH4K.xcodeproj"/>
+                   </BuildActionEntry>
+                </BuildActionEntries>
+             </BuildAction>
+             <LaunchAction buildConfiguration="Release" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES">
+                <BuildableProductRunnable runnableDebuggingMode="0">
+                   <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="TGT001" BuildableName="ShinnH4K.app" BlueprintName="ShinnH4K" ReferencedContainer="container:ShinnH4K.xcodeproj"/>
+                </BuildableProductRunnable>
+             </LaunchAction>
+             <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
+          </Scheme>
+          SCHEMEOF
+
+          echo "=== pbxproj created ==="
+          wc -l ShinnH4K.xcodeproj/project.pbxproj
 
       - name: Verify scheme
         run: xcodebuild -list -project ShinnH4K.xcodeproj
 
-      - name: Build app
+      - name: Build
         run: |
           set -o pipefail
           xcodebuild \
@@ -50,15 +265,13 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            build 2>&1 | tail -200
+            build 2>&1 | tee /tmp/build.log | tail -300
 
-      - name: List build output
-        if: always()
+      - name: Show errors only
+        if: failure()
         run: |
-          echo "=== Build products ==="
-          find build/Build/Products -maxdepth 3 -type d 2>/dev/null || echo "No products"
+          echo "=== ERRORS ==="
+          grep -E "error:" /tmp/build.log | head -50 || echo "No error: lines"
 
       - name: Package IPA
         if: success()
@@ -66,7 +279,7 @@ jobs:
           APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" -type d 2>/dev/null | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "No .app found"
-            find build/Build/Products -maxdepth 3 2>/dev/null
+            find build/Build/Products -maxdepth 3 2>/dev/null || true
             exit 1
           fi
           APP_NAME=$(basename "$APP_PATH" .app)
@@ -74,7 +287,6 @@ jobs:
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           rm -rf "Payload/${APP_NAME}.app/_CodeSignature" || true
-          rm -f  "Payload/${APP_NAME}.app/embedded.mobileprovision" || true
           zip -qr ShinnH4K.ipa Payload
           ls -la ShinnH4K.ipa
 
