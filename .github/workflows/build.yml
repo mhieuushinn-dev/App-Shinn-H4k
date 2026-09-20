@@ -2,7 +2,10 @@ name: Build ShinnH4K IPA
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
 jobs:
@@ -11,85 +14,170 @@ jobs:
     runs-on: macos-14
 
     steps:
+
+      # =========================
+      # CHECKOUT
+      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =========================
+      # XCODE
+      # =========================
       - name: Show Xcode
         run: |
+          set -e
           xcodebuild -version
 
+      # =========================
+      # XCODEGEN
+      # =========================
       - name: Install XcodeGen
         run: |
+          set -e
+
           brew install xcodegen
+
+          echo "XcodeGen:"
           xcodegen version
 
+      # =========================
+      # CHECK FILES
+      # =========================
       - name: Check project files
         run: |
-          echo "=== Root ==="
+          set -e
+
+          echo "================ ROOT ================"
           ls -la
 
-          echo "=== project.yml ==="
+          echo "================ project.yml ================"
           test -f project.yml
 
-          echo "=== ShinnH4K ==="
-          ls -la ShinnH4K || true
+          echo "================ INFO ================"
+          test -f Info.plist
 
-      - name: Generate Xcode project
+          echo "================ BRIDGING HEADER ================"
+          test -f ShinnH4K-Bridging-Header.h
+
+          echo "================ ASSETS ================"
+          if [ -d "Assets.xcassets" ]; then
+            echo "Assets.xcassets found"
+          else
+            echo "No Assets.xcassets"
+          fi
+
+      # =========================
+      # REMOVE OLD PROJECT
+      # =========================
+      - name: Remove old generated project
         run: |
           set -e
 
           rm -rf ShinnH4K.xcodeproj
+          rm -rf build
 
-          xcodegen generate --spec project.yml
+      # =========================
+      # GENERATE XCODE PROJECT
+      # =========================
+      - name: Generate Xcode project
+        run: |
+          set -e
+
+          xcodegen generate \
+            --spec project.yml
 
           test -d ShinnH4K.xcodeproj
           test -f ShinnH4K.xcodeproj/project.pbxproj
 
-          echo "=== Generated ==="
+          echo "================ GENERATED PROJECT ================"
+
           ls -la ShinnH4K.xcodeproj
 
+      # =========================
+      # FIX XCODE PROJECT FORMAT
+      # =========================
       - name: Fix project format for Xcode 15
         run: |
-          python3 - <<'PY'
+          set -e
+
+          python3 <<'PY'
           from pathlib import Path
 
-          p = Path("ShinnH4K.xcodeproj/project.pbxproj")
+          path = Path("ShinnH4K.xcodeproj/project.pbxproj")
 
-          text = p.read_text()
+          if not path.exists():
+              raise SystemExit("project.pbxproj not found")
 
-          # Xcode 15-compatible project format
+          text = path.read_text()
+
           text = text.replace(
-              'objectVersion = 70;',
-              'objectVersion = 56;'
+              "objectVersion = 70;",
+              "objectVersion = 56;"
           )
 
           text = text.replace(
-              'objectVersion = 77;',
-              'objectVersion = 56;'
+              "objectVersion = 77;",
+              "objectVersion = 56;"
           )
 
-          p.write_text(text)
+          path.write_text(text)
 
-          print("Project format adjusted for Xcode 15")
+          print("Project format fixed")
           PY
 
+      # =========================
+      # CHECK PROJECT
+      # =========================
       - name: Verify project
         run: |
           set -e
 
-          echo "=== Project file ==="
-          head -20 ShinnH4K.xcodeproj/project.pbxproj
+          echo "================ PROJECT HEADER ================"
 
-          echo "=== Xcode project list ==="
+          head -30 \
+            ShinnH4K.xcodeproj/project.pbxproj
+
+          echo "================ XCODE PROJECT LIST ================"
+
           xcodebuild \
             -list \
             -project ShinnH4K.xcodeproj
 
-      - name: Clean
+      # =========================
+      # CHECK BUILD SETTINGS
+      # =========================
+      - name: Show build settings
         run: |
+          set -e
+
+          xcodebuild \
+            -project ShinnH4K.xcodeproj \
+            -scheme ShinnH4K \
+            -configuration Release \
+            -showBuildSettings \
+            > build-settings.txt
+
+          echo "Build settings generated"
+
+          grep -E \
+            "PRODUCT_BUNDLE_IDENTIFIER|INFOPLIST_FILE|SWIFT_OBJC_BRIDGING_HEADER|IPHONEOS_DEPLOYMENT_TARGET" \
+            build-settings.txt || true
+
+      # =========================
+      # CLEAN
+      # =========================
+      - name: Clean build
+        run: |
+          set -e
+
           rm -rf build
+
           mkdir -p build
 
+      # =========================
+      # ARCHIVE
+      # =========================
       - name: Archive unsigned
         run: |
           set -o pipefail
@@ -99,7 +187,7 @@ jobs:
             -scheme ShinnH4K \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath build/ShinnH4K.xcarchive \
+            -archivePath "build/ShinnH4K.xcarchive" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -107,38 +195,66 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             IPHONEOS_DEPLOYMENT_TARGET=17.0
 
+      # =========================
+      # FIND APP
+      # =========================
       - name: Find application
         run: |
-          echo "=== Archive contents ==="
+          set -e
 
-          find build/ShinnH4K.xcarchive \
+          echo "================ ARCHIVE ================"
+
+          find \
+            build/ShinnH4K.xcarchive \
             -maxdepth 6 \
             -print
 
-          APP_PATH=$(find \
-            build/ShinnH4K.xcarchive/Products/Applications \
-            -maxdepth 1 \
-            -name "*.app" \
-            -type d \
-            2>/dev/null | head -1)
+          APP_PATH=$(
+            find \
+              build/ShinnH4K.xcarchive/Products/Applications \
+              -maxdepth 1 \
+              -type d \
+              -name "*.app" \
+              2>/dev/null | head -1
+          )
 
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: No .app found"
             exit 1
           fi
 
+          echo "APP_PATH=$APP_PATH"
+
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
-      - name: Package IPA
+      # =========================
+      # CREATE PAYLOAD
+      # =========================
+      - name: Create Payload
+        run: |
+          set -e
+
+          rm -rf build/Payload
+
+          mkdir -p build/Payload
+
+          APP_NAME=$(basename "$APP_PATH" .app)
+
+          cp -R \
+            "$APP_PATH" \
+            "build/Payload/$APP_NAME.app"
+
+          echo "APP:"
+          ls -la build/Payload
+
+      # =========================
+      # REMOVE SIGNATURE
+      # =========================
+      - name: Remove code signature
         run: |
           set -e
 
           APP_NAME=$(basename "$APP_PATH" .app)
-
-          rm -rf build/Payload
-          mkdir -p build/Payload
-
-          cp -R "$APP_PATH" "build/Payload/$APP_NAME.app"
 
           rm -rf \
             "build/Payload/$APP_NAME.app/_CodeSignature"
@@ -146,15 +262,43 @@ jobs:
           rm -f \
             "build/Payload/$APP_NAME.app/embedded.mobileprovision"
 
+      # =========================
+      # CREATE IPA
+      # =========================
+      - name: Package IPA
+        run: |
+          set -e
+
           cd build
 
-          zip -qr ShinnH4K.ipa Payload
+          rm -f ShinnH4K.ipa
+
+          zip -qr \
+            ShinnH4K.ipa \
+            Payload
 
           cd ..
 
-          echo "=== IPA created ==="
-          ls -lh build/ShinnH4K.ipa
+          echo "================ IPA ================"
 
+          ls -lh \
+            build/ShinnH4K.ipa
+
+      # =========================
+      # VERIFY IPA
+      # =========================
+      - name: Verify IPA
+        run: |
+          set -e
+
+          test -f build/ShinnH4K.ipa
+
+          unzip -l \
+            build/ShinnH4K.ipa
+
+      # =========================
+      # UPLOAD
+      # =========================
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
