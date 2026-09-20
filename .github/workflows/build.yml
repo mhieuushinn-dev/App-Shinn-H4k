@@ -2,7 +2,7 @@ name: Build ShinnH4K IPA
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -18,27 +18,55 @@ jobs:
         run: |
           echo "=== Xcode ==="
           xcodebuild -version
+
+          echo "=== XcodeGen ==="
+          xcodegen version || true
+
           echo "=== Repo root ==="
           ls -la
+
+          echo "=== project.yml ==="
+          if [ -f project.yml ]; then
+            ls -lh project.yml
+          else
+            echo "MISSING project.yml"
+            exit 1
+          fi
+
           echo "=== ShinnH4K folder ==="
           ls -la ShinnH4K/ || echo "MISSING ShinnH4K folder"
-          echo "=== project.yml ==="
-          ls -la project.yml || echo "MISSING project.yml"
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          brew update
+          brew install xcodegen
+          xcodegen version
 
       - name: Generate Xcode project
         run: |
+          set -e
+
           if [ ! -f project.yml ]; then
             echo "ERROR: project.yml not found at repo root"
             exit 1
           fi
+
+          echo "=== Generating Xcode project ==="
           xcodegen generate
-          ls -la ShinnH4K.xcodeproj/ || echo "MISSING xcodeproj"
+
+          if [ ! -d ShinnH4K.xcodeproj ]; then
+            echo "ERROR: ShinnH4K.xcodeproj was not generated"
+            exit 1
+          fi
+
+          echo "=== Generated project ==="
+          ls -la ShinnH4K.xcodeproj
 
       - name: Verify scheme
-        run: xcodebuild -list -project ShinnH4K.xcodeproj
+        run: |
+          xcodebuild \
+            -list \
+            -project ShinnH4K.xcodeproj
 
       - name: Clean build folder
         run: |
@@ -48,6 +76,7 @@ jobs:
       - name: Archive (unsigned)
         run: |
           set -o pipefail
+
           xcodebuild archive \
             -project ShinnH4K.xcodeproj \
             -scheme ShinnH4K \
@@ -64,26 +93,51 @@ jobs:
       - name: List archive contents
         if: always()
         run: |
-          find build/ShinnH4K.xcarchive -maxdepth 4 2>/dev/null || echo "No archive"
+          echo "=== Archive ==="
+          find build/ShinnH4K.xcarchive \
+            -maxdepth 5 \
+            2>/dev/null || echo "No archive"
 
       - name: Package IPA (unsigned)
         run: |
-          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d 2>/dev/null | head -1)
+          set -e
+
+          APP_PATH=$(find \
+            build/ShinnH4K.xcarchive/Products/Applications \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d \
+            2>/dev/null | head -1)
+
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: No .app found in archive"
-            find build/ShinnH4K.xcarchive -maxdepth 5 2>/dev/null
+            find build/ShinnH4K.xcarchive \
+              -maxdepth 5 \
+              2>/dev/null || true
             exit 1
           fi
+
           APP_NAME=$(basename "$APP_PATH" .app)
-          echo "Found: $APP_NAME"
+
+          echo "Found application: $APP_NAME"
+
+          rm -rf build/Payload
           mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/
-          rm -rf "build/Payload/${APP_NAME}.app/_CodeSignature" || true
-          rm -f  "build/Payload/${APP_NAME}.app/embedded.mobileprovision" || true
+
+          cp -R "$APP_PATH" "build/Payload/"
+
+          rm -rf \
+            "build/Payload/${APP_NAME}.app/_CodeSignature"
+
+          rm -f \
+            "build/Payload/${APP_NAME}.app/embedded.mobileprovision"
+
           cd build
           zip -qr ShinnH4K.ipa Payload
           cd ..
-          ls -la build/ShinnH4K.ipa
+
+          echo "=== IPA ==="
+          ls -lh build/ShinnH4K.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
