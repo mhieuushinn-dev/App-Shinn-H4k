@@ -1,118 +1,22 @@
-name: Build ShinnH4K IPA
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Build unsigned IPA
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Show environment
-        run: |
-          echo "=== Xcode version ==="
-          xcodebuild -version
-          echo "=== iOS SDK ==="
-          xcrun --sdk iphoneos --show-sdk-version
-          echo "=== Repo structure ==="
-          ls -la
-          echo "=== ShinnH4K folder ==="
-          ls -la ShinnH4K/ || echo "MISSING ShinnH4K folder"
-
-      - name: Install XcodeGen
-        run: |
-          brew install xcodegen || brew upgrade xcodegen
-
       - name: Generate Xcode project
         run: |
+          # Kiểm tra xem project.yml nằm ở đâu và chuyển hướng nếu cần
+          if [ -f "ShinnH4K/project.yml" ]; then
+            cd ShinnH4K
+          fi
+
           if [ ! -f project.yml ]; then
             echo "ERROR: project.yml not found"
             exit 1
           fi
+          
           xcodegen generate
+          
+          # Đưa file xcodeproj ra thư mục gốc nếu project.yml nằm trong thư mục con
+          if [ -d "ShinnH4K.xcodeproj" ] && [ ! -d "../ShinnH4K.xcodeproj" ]; then
+            mv ShinnH4K.xcodeproj ../
+            cd ..
+          fi
+          
           echo "=== Generated ==="
           ls -la ShinnH4K.xcodeproj/ || echo "MISSING xcodeproj"
-
-      - name: Verify scheme
-        run: |
-          xcodebuild -list -project ShinnH4K.xcodeproj
-
-      - name: Clean build folder
-        run: |
-          rm -rf build
-          mkdir -p build
-
-      - name: Archive (unsigned)
-        run: |
-          set -o pipefail
-          xcodebuild archive \
-            -project ShinnH4K.xcodeproj \
-            -scheme ShinnH4K \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath build/ShinnH4K.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
-            -verbose | xcbeautify || xcodebuild archive \
-            -project ShinnH4K.xcodeproj \
-            -scheme ShinnH4K \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath build/ShinnH4K.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            IPHONEOS_DEPLOYMENT_TARGET=17.0
-
-      - name: List archive contents
-        if: always()
-        run: |
-          echo "=== Archive tree ==="
-          find build/ShinnH4K.xcarchive -maxdepth 4 2>/dev/null || echo "No archive"
-
-      - name: Package IPA (unsigned)
-        run: |
-          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d 2>/dev/null | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app found in archive"
-            find build/ShinnH4K.xcarchive -maxdepth 5 2>/dev/null
-            exit 1
-          fi
-          echo "Found app: $APP_PATH"
-          APP_NAME=$(basename "$APP_PATH" .app)
-          echo "App name: $APP_NAME"
-
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/
-
-          rm -rf "build/Payload/${APP_NAME}.app/_CodeSignature" || true
-          rm -f  "build/Payload/${APP_NAME}.app/embedded.mobileprovision" || true
-
-          cd build
-          zip -qr ShinnH4K.ipa Payload
-          cd ..
-
-          echo "=== Final IPA ==="
-          ls -la build/ShinnH4K.ipa
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ShinnH4K-unsigned-ipa
-          path: build/ShinnH4K.ipa
-          retention-days: 30
-          if-no-files-found: error
