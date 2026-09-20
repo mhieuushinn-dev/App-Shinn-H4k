@@ -1,20 +1,54 @@
-name: ShinnH4K
-options:
-  bundleIdPrefix: com.shinn
-targets:
-  ShinnH4K:
-    type: application
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: .
-        excludes:
-          - .github
-          - build
-          - ShinnH4K.xcodeproj
-    settings:
-      CODE_SIGN_STYLE: Manual
-      CODE_SIGN_IDENTITY: ""
-      DEVELOPMENT_TEAM: ""
-      INFOPLIST_FILE: Info.plist
-      SWIFT_OBJC_BRIDGING_HEADER: ShinnH4K-BridgingHeader.h
+name: Build ShinnH4K IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen || brew upgrade xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Clean build folder
+        run: rm -rf build && mkdir -p build
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -project ShinnH4K.xcodeproj \
+            -scheme ShinnH4K \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/ShinnH4K.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPA (unsigned)
+        run: |
+          APP_PATH=$(find build/ShinnH4K.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -type d | head -1)
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          cd build
+          zip -qr ShinnH4K.ipa Payload
+          cd ..
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShinnH4K-unsigned-ipa
+          path: build/ShinnH4K.ipa
+          retention-days: 30
