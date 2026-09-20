@@ -14,66 +14,83 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show environment
+      - name: Show Xcode
         run: |
-          echo "=== Xcode ==="
           xcodebuild -version
-
-          echo "=== XcodeGen ==="
-          xcodegen version || true
-
-          echo "=== Repo root ==="
-          ls -la
-
-          echo "=== project.yml ==="
-          if [ -f project.yml ]; then
-            ls -lh project.yml
-          else
-            echo "MISSING project.yml"
-            exit 1
-          fi
-
-          echo "=== ShinnH4K folder ==="
-          ls -la ShinnH4K/ || echo "MISSING ShinnH4K folder"
 
       - name: Install XcodeGen
         run: |
-          brew update
           brew install xcodegen
           xcodegen version
+
+      - name: Check project files
+        run: |
+          echo "=== Root ==="
+          ls -la
+
+          echo "=== project.yml ==="
+          test -f project.yml
+
+          echo "=== ShinnH4K ==="
+          ls -la ShinnH4K || true
 
       - name: Generate Xcode project
         run: |
           set -e
 
-          if [ ! -f project.yml ]; then
-            echo "ERROR: project.yml not found at repo root"
-            exit 1
-          fi
+          rm -rf ShinnH4K.xcodeproj
 
-          echo "=== Generating Xcode project ==="
-          xcodegen generate
+          xcodegen generate --spec project.yml
 
-          if [ ! -d ShinnH4K.xcodeproj ]; then
-            echo "ERROR: ShinnH4K.xcodeproj was not generated"
-            exit 1
-          fi
+          test -d ShinnH4K.xcodeproj
+          test -f ShinnH4K.xcodeproj/project.pbxproj
 
-          echo "=== Generated project ==="
+          echo "=== Generated ==="
           ls -la ShinnH4K.xcodeproj
 
-      - name: Verify scheme
+      - name: Fix project format for Xcode 15
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("ShinnH4K.xcodeproj/project.pbxproj")
+
+          text = p.read_text()
+
+          # Xcode 15-compatible project format
+          text = text.replace(
+              'objectVersion = 70;',
+              'objectVersion = 56;'
+          )
+
+          text = text.replace(
+              'objectVersion = 77;',
+              'objectVersion = 56;'
+          )
+
+          p.write_text(text)
+
+          print("Project format adjusted for Xcode 15")
+          PY
+
+      - name: Verify project
+        run: |
+          set -e
+
+          echo "=== Project file ==="
+          head -20 ShinnH4K.xcodeproj/project.pbxproj
+
+          echo "=== Xcode project list ==="
           xcodebuild \
             -list \
             -project ShinnH4K.xcodeproj
 
-      - name: Clean build folder
+      - name: Clean
         run: |
           rm -rf build
           mkdir -p build
 
-      - name: Archive (unsigned)
+      - name: Archive unsigned
         run: |
           set -o pipefail
 
@@ -90,17 +107,13 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             IPHONEOS_DEPLOYMENT_TARGET=17.0
 
-      - name: List archive contents
-        if: always()
+      - name: Find application
         run: |
-          echo "=== Archive ==="
-          find build/ShinnH4K.xcarchive \
-            -maxdepth 5 \
-            2>/dev/null || echo "No archive"
+          echo "=== Archive contents ==="
 
-      - name: Package IPA (unsigned)
-        run: |
-          set -e
+          find build/ShinnH4K.xcarchive \
+            -maxdepth 6 \
+            -print
 
           APP_PATH=$(find \
             build/ShinnH4K.xcarchive/Products/Applications \
@@ -110,36 +123,39 @@ jobs:
             2>/dev/null | head -1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app found in archive"
-            find build/ShinnH4K.xcarchive \
-              -maxdepth 5 \
-              2>/dev/null || true
+            echo "ERROR: No .app found"
             exit 1
           fi
 
-          APP_NAME=$(basename "$APP_PATH" .app)
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
-          echo "Found application: $APP_NAME"
+      - name: Package IPA
+        run: |
+          set -e
+
+          APP_NAME=$(basename "$APP_PATH" .app)
 
           rm -rf build/Payload
           mkdir -p build/Payload
 
-          cp -R "$APP_PATH" "build/Payload/"
+          cp -R "$APP_PATH" "build/Payload/$APP_NAME.app"
 
           rm -rf \
-            "build/Payload/${APP_NAME}.app/_CodeSignature"
+            "build/Payload/$APP_NAME.app/_CodeSignature"
 
           rm -f \
-            "build/Payload/${APP_NAME}.app/embedded.mobileprovision"
+            "build/Payload/$APP_NAME.app/embedded.mobileprovision"
 
           cd build
+
           zip -qr ShinnH4K.ipa Payload
+
           cd ..
 
-          echo "=== IPA ==="
+          echo "=== IPA created ==="
           ls -lh build/ShinnH4K.ipa
 
-      - name: Upload IPA artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ShinnH4K-unsigned-ipa
