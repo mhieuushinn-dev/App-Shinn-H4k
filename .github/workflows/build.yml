@@ -1,22 +1,20 @@
-      - name: Generate Xcode project
-        run: |
-          # Kiểm tra xem project.yml nằm ở đâu và chuyển hướng nếu cần
-          if [ -f "ShinnH4K/project.yml" ]; then
-            cd ShinnH4K
-          fi
-
-          if [ ! -f project.yml ]; then
-            echo "ERROR: project.yml not found"
-            exit 1
-          fi
-          
-          xcodegen generate
-          
-          # Đưa file xcodeproj ra thư mục gốc nếu project.yml nằm trong thư mục con
-          if [ -d "ShinnH4K.xcodeproj" ] && [ ! -d "../ShinnH4K.xcodeproj" ]; then
-            mv ShinnH4K.xcodeproj ../
-            cd ..
-          fi
-          
-          echo "=== Generated ==="
-          ls -la ShinnH4K.xcodeproj/ || echo "MISSING xcodeproj"
+name: ShinnH4K
+options:
+  bundleIdPrefix: com.shinn
+targets:
+  ShinnH4K:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: .
+        excludes:
+          - .github
+          - build
+          - ShinnH4K.xcodeproj
+    settings:
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: ""
+      DEVELOPMENT_TEAM: ""
+      INFOPLIST_FILE: Info.plist
+      SWIFT_OBJC_BRIDGING_HEADER: ShinnH4K-BridgingHeader.h
